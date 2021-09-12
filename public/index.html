@@ -18,9 +18,29 @@ Secret: <input class="input-secret" value="01">
 <button class="input-login">Join system</button><br>
 <hr>
 <!-- next -->
-Room: <select class="input-rooms"></select>
+Room: <select class="input-room"></select>
 Caption: <input class="input-caption" value="Hi!">
 <button class="input-send-message">Send message</button><br>
+<hr>
+<!-- next -->
+New Group: <select class="input-groups"></select>
+<button class="input-chat-group">Join the group</button><br>
+<br>
+New Users: <select class="input-users"></select>
+<button class="input-chat-user">Chat with user</button><br>
+<hr>
+<!-- next -->
+Create new Group: <input class="input-create-group-name">
+<button class="input-create-group">Create new group</button><br>
+<br>
+Invite to group: <select class="input-invite-group-rooms"></select>
+Select the user: <select class="input-invite-group-users"></select>
+<button class="input-invite-group">Invite the user</button><br>
+<hr>
+<!-- next -->
+Messages: <select class="input-messages"></select>
+<button class="input-message-delete">Delete the message</button>
+<button class="input-message-edit">Edit the message</button>
 <hr>
 <!-- next -->
 <div class="logs"></div>
@@ -29,6 +49,8 @@ Caption: <input class="input-caption" value="Hi!">
 // INIT
 renderjson.set_icons('+', '-')
 renderjson.set_show_to_level(5)
+renderjson.set_sort_objects(true)
+
 let ws = undefined
 let socketFrom = undefined
 let socketStatus = false
@@ -38,9 +60,25 @@ const elementLogin = document.querySelector(".input-login")
 const elementLogs = document.querySelector(".logs")
 const elementSession = document.querySelector(".input-session")
 const elementSecret = document.querySelector(".input-secret")
-const elementRooms = document.querySelector(".input-rooms")
+const elementRoom = document.querySelector(".input-room")
 const elementCaption = document.querySelector(".input-caption")
 const elementSendMessage = document.querySelector(".input-send-message")
+
+const elementUsers = document.querySelector(".input-users")
+const elementGroups = document.querySelector(".input-groups")
+const elementChatGroup = document.querySelector(".input-chat-group")
+const elementChatUser = document.querySelector(".input-chat-user")
+
+const elementNewGroupName = document.querySelector(".input-create-group-name")
+const elementNewGroup = document.querySelector(".input-create-group")
+
+const elementInviteGroupRooms = document.querySelector(".input-invite-group-rooms")
+const elementInviteGroupUsers = document.querySelector(".input-invite-group-users")
+const elementInviteGroup = document.querySelector(".input-invite-group")
+
+const elementMessages = document.querySelector(".input-messages")
+const elementMessageDelete = document.querySelector(".input-message-delete")
+const elementMessageEdit = document.querySelector(".input-message-edit")
 
 // Debug
 const getQueryVariable = (variable) => {
@@ -58,9 +96,10 @@ const getQueryVariable = (variable) => {
 }
 
 const FAKE_AUTH = [
-	"1*******",
-	"2*******",
-	"3*******",
+	"98****",
+	"98****",
+	"98****",
+	"98****"
 ]
 
 let debug_index = getQueryVariable("u")-1
@@ -69,20 +108,47 @@ elementSession.value = FAKE_AUTH[debug_index] ? FAKE_AUTH[debug_index] : ""
 elementSecret.value = elementSession.value
 
 // Functions
-const addNewRoom = (data) => {
-	console.log("addNewRoom: ", data)
+const addNewToRoom = (data) => {
+	console.log("addNewToRoom: ", data)
 
-	const isGroup = data.room.type === "GROUP"
-	const id = data.room.id
-	const name = `${isGroup ? "GROUP" : "USER"}: ${data.room.name}`
+	const isGroup = data.type === "GROUP"
+	const id = data.id
+	const name = `${isGroup ? "GROUP" : "USER"}: ${data.name}`
 
 	const newOption = document.createElement('option')
 	newOption.appendChild(document.createTextNode(name))
 	newOption.setAttribute('value', id)
 	newOption.setAttribute('data-type', data.type)
 
-	elementRooms.appendChild(newOption)
+	elementRoom.appendChild(newOption)
 }
+const addNewToGroups = (data) => {
+	console.log("addNewToGroups: ", data)
+
+	const id = data.id
+	const name = `${data.name}`
+
+	const newOption = document.createElement('option')
+	newOption.appendChild(document.createTextNode(name))
+	newOption.setAttribute('value', id)
+	newOption.setAttribute('data-type', 'GROUP')
+
+	elementGroups.appendChild(newOption)
+}
+const addNewToUsers = (data) => {
+	console.log("addNewToUsers: ", data)
+
+	const id = data.id
+	const name = `${data.name}`
+
+	const newOption = document.createElement('option')
+	newOption.appendChild(document.createTextNode(name))
+	newOption.setAttribute('value', id)
+	newOption.setAttribute('data-type', 'USER')
+
+	elementUsers.appendChild(newOption)
+}
+
 
 const send = (data) => {
 	ws.send(JSON.stringify(data))
@@ -135,8 +201,45 @@ const socketConnect = (session, secret) => {
 			if(obj.type === 'WELCOME') {
 				socketFrom = obj.info
 				for(let room of obj.rooms) {
-					console.log(room)
-					addNewRoom(room)
+					// console.log(room)
+					addNewToRoom(room.room)
+				}
+				send({
+					type: "ASK_SEARCH_GROUPS",
+					from: socketFrom,
+					server: "",
+					search: ""
+				})
+				send({
+					type: "ASK_SEARCH_USERS",
+					from: socketFrom,
+					server: "",
+					search: ""
+				})
+			}
+			else if(obj.type === "OPEN_ROOM") {
+				let founded = false
+				for(let item of elementRoom.options) {
+					console.log(item, item.value, obj.room)
+					if(item.value === obj.room.id) {
+						console.log("open room: already founded!")
+						founded = true
+					}
+				}
+				if(founded === false) {
+					addNewToRoom(obj.room)
+				}
+			}
+			else if(obj.type === "ANSWER_SEARCH_GROUPS") {
+				for(let group of obj.groups) {
+					// console.log(group)
+					addNewToGroups(group)
+				}
+			}
+			else if(obj.type === "ANSWER_SEARCH_USERS") {
+				for(let user of obj.users) {
+					// console.log(user)
+					addNewToUsers(user)
 				}
 			}
 			else if(obj.type === 'NEW_MESSAGE') {
@@ -144,10 +247,8 @@ const socketConnect = (session, secret) => {
 			else if(obj.type === 'UPDATE_MESSAGE') {
 			}
 			else if(obj.type === 'USER_ONLINE') {
-
 			}
 			else if(obj.type === 'USER_OFFLINE') {
-
 			}
 		} catch (e) {
 			console.log('JSON Error', e.message)
@@ -156,6 +257,9 @@ const socketConnect = (session, secret) => {
 }
 
 // Events
+window.addEventListener("load", () => {
+	elementLogin.click()
+})
 elementLogin.addEventListener("click", () => {
 	socketConnect(elementSession.value, elementSecret.value)
 })
@@ -164,12 +268,40 @@ elementSendMessage.addEventListener("click", () => {
 		type: 'SEND_MESSAGE',
 		from: socketFrom,
 		to: {
-			id: elementRooms.options[elementRooms.selectedIndex].value,
-			type: elementRooms.options[elementRooms.selectedIndex].getAttribute('data-type')
+			id: elementRoom.options[elementRoom.selectedIndex].value,
+			type: elementRoom.options[elementRoom.selectedIndex].getAttribute('data-type')
 		},
-		format: 'MESSAGE',
-		caption: elementCaption.value
+		message: {
+			type: 'MESSAGE',
+			caption: elementCaption.value
+		}
 	})
+})
+elementChatGroup.addEventListener("click", () => {
+	send({
+		type: 'JOIN_ROOM',
+		from: socketFrom,
+		group: elementGroups.options[elementGroups.selectedIndex].value
+	})
+})
+elementChatUser.addEventListener("click", () => {
+	send({
+		type: 'JOIN_USER',
+		from: socketFrom,
+		user: elementUsers.options[elementUsers.selectedIndex].value
+	})
+})
+elementNewGroup.addEventListener("click", () => {
+
+})
+elementInviteGroup.addEventListener("click", () => {
+
+})
+elementMessageDelete.addEventListener("click", () => {
+
+})
+elementMessageEdit.addEventListener("click", () => {
+
 })
 </script>
 </body>
