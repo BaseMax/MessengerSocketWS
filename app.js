@@ -1,3 +1,7 @@
+// Max Base
+// 12 Sep, 2021 - 13 Sep, 2021
+// https://github.com/BaseMax/OnSystemChat
+
 const fs = require('fs')
 const url = require('url')
 const http = require('http')
@@ -171,6 +175,85 @@ SELECT
 		message_id DESC
 	;
 
+# SELECT NUMBER OF PERSONAL ROOM WITH OTHER ACCOUNTS YOU HAVE ('1' user)
+SELECT
+		COUNT(*)
+	    AS
+	    	count
+	FROM
+	(
+		SELECT
+	        #COUNT(room.id) as count
+	        room.id
+	        #CONCAT(user.firstname, ' ', user.lastname) as name,
+	        #(SELECT COUNT(r.id) FROM room_member as r WHERE room = room.id) as members,
+	        #(SELECT COUNT(rm.user) FROM room_member as rm WHERE rm.room = room.id AND rm.user = 1) as my_at
+	    FROM
+	        room
+	    INNER JOIN
+	        room_member
+	        ON
+	            room_member.room = room.id
+	    INNER JOIN
+	        user
+	        ON
+	            user.id = room_member.user
+	    WHERE
+	        user.id != 1
+	    #	(
+	    #        room_member.user = 4
+	    #        OR
+	    #        room_member.user = 1
+	    #    )
+	        AND
+	        room.isgroup = 0
+	    GROUP BY
+	        room.id
+	    HAVING
+	        (SELECT COUNT(rm.user) FROM room_member as rm WHERE rm.room = room.id AND rm.user = 1) = 1
+	    #    AND
+	    #    (SELECT COUNT(rm.user) FROM room_member as rm WHERE rm.room = room.id AND rm.user != 1) = 2
+	        AND
+	        (SELECT COUNT(r.id) FROM room_member as r WHERE room = room.id) = 2
+
+	    #(SELECT COUNT(id) FROM `room_member` WHERE user = 4;
+	    #SELECT COUNT(id) FROM `room_member` WHERE user = 1;
+	)
+	as count
+	;
+
+
+# DOES USER `1' has a private room with user '3'? if count is 0 mean no, if that is 1, so yes they have a private room
+SELECT
+		3
+	IN
+	(
+		SELECT
+	    	user.id
+	    FROM
+	        room
+	    INNER JOIN
+	        room_member
+	        ON
+	            room_member.room = room.id
+	    INNER JOIN
+	        user
+	        ON
+	            user.id = room_member.user
+	    WHERE
+	        user.id != 1
+	        AND
+	        room.isgroup = 0
+	    GROUP BY
+	        room.id
+	    HAVING
+	        (SELECT COUNT(rm.user) FROM room_member as rm WHERE rm.room = room.id AND rm.user = 1) = 1
+	        AND
+	        (SELECT COUNT(r.id) FROM room_member as r WHERE room = room.id) = 2
+	)
+	as count
+	;
+
 */
 
 // INIT Server
@@ -191,7 +274,6 @@ const query = util.promisify(conn.query).bind(conn)
 // Variables
 const rooms = {}
 const users = {}
-let RAND_MESSAGES = 0
 
 // Functions
 // const DBRoomsOfUser = (userID) => {
@@ -245,8 +327,14 @@ wss.on('connection', async (socket, request) => {
 			// console.log("users: ", users)
 			// console.log("rooms: ", rooms)
 			if(!users[sock]) return
+			// console.log("going to send data", data)
 			users[sock].send(JSON.stringify(data))
 		})
+	}
+
+	const send_to_all = (data) => {
+		console.log(`send_to_all: `, room, data)
+		// TODO
 	}
 
 	// Database Auth
@@ -344,42 +432,41 @@ wss.on('connection', async (socket, request) => {
 
 				// console.log(result[index])
 			})
-			// console.log(`result query: `, result)
-			if(result !== undefined) {
-				histories = result
+			histories = result
+			// console.log(`histories: `, histories)
+	
+			// Set the user ONLINE
+			console.log(`set the user ONLINE: `, socket.info.id)
+			if(!users[socket.info.id]) users[socket.info.id] = socket
+
+			// Put the user ONLINE at the groups
+			for(const history of histories) {
+				console.log(`Create room: `, history)
+
+				// create the room
+				console.log(`create room: `, history.room.id)
+				if(!rooms[history.room.id]) rooms[history.room.id] = {}
+				// join the room
+				console.log(`join the room: `, history.room.id, socket.info.id)
+				if(!rooms[history.room.id][socket.info.id]) rooms[history.room.id][socket.info.id] = true
 			}
-			else {
-				console.error(`It's not possible to selscts from DB!`)
-			}
+			// Say welcome to the user
+			send_to_me({
+				type: 'WELCOME',
+				valid: true,
+				from: undefined,
+				info: socket.info,
+				rooms: histories
+			})
+
+			// send_to_me({
+			// 	type: 'join',
+			// 	from: undefined,
+			// 	user: socket.username
+			// })
 		} catch(e) {
 			console.error(`Selects Database catch: `, e)
 		}
-
-		// Set the user ONLINE
-		if(!users[socket.info.id]) users[socket.info.id] = socket
-		// Put the user ONLINE at the groups
-		for(const room of histories) {
-			if(room.type === "GROUP") {
-				// create the room
-				if(!rooms[room.id]) rooms[room.id] = {}
-				// join the room
-				if(!rooms[room.id][socket.info.id]) rooms[room.id][socket.info.id] = true
-			}
-		}
-		// Say welcome to the user
-		send_to_me({
-			type: 'WELCOME',
-			valid: true,
-			from: undefined,
-			info: socket.info,
-			rooms: histories
-		})
-
-		// send_to_me({
-		// 	type: 'join',
-		// 	from: undefined,
-		// 	user: socket.username
-		// })
 
 		socket.on('message', async (data) => {
 			// console.log(`message: `, data)
@@ -387,37 +474,326 @@ wss.on('connection', async (socket, request) => {
 			console.log(`message: `, command)
 			const type = command.type
 
-			if(type === 'SEND_MESSAGE') {
-				command.id = ++RAND_MESSAGES
-				// Database Auth
+			if(type === 'EDIT_MESSAGE') {
+				try {
+					let sql = `UPDATE message SET caption = '${command.message.caption}' WHERE id = ${command.message.id};`
+					// console.log(`update query: `, sql)
+					let result = await query(sql)
+					// console.log(`result query: `, result)
+
+					send_to_room(command.room.id, command)
+				} catch(e) {
+					console.error(`Insert Database catch: `, e)
+				}
+			}
+			else if(type === 'SEND_MESSAGE') {
 				try {
 					let sql = `INSERT
 								INTO message
-								(room, roomtype, user, type, caption, filename, edited)
+								(room, user, type, caption, filename, edited)
 								VALUES (${command.to.id},
-										${command.to.type === "GROUP" ? 1 : 2},
 										${command.from.id},
-										${command.file ? 1 : (command.voice ? 2 : 0)},
-										${command.caption ? "'"+command.caption+"'" : 'NULL'},
-										${command.file ? "'"+command.file+"'" : (command.voice ? "'"+command.voice+"'" : 'NULL')},
+										${command.message.file ? 1 : (command.message.voice ? 2 : 0)},
+										${command.message.caption ? "'"+command.message.caption+"'" : '""'},
+										${command.message.file ? "'"+command.message.file+"'" : (command.message.voice ? "'"+command.message.voice+"'" : 'NULL')},
 										0)
 								;`
 					// console.log(`insert query: `, sql)
 					let result = await query(sql)
 					// console.log(`result query: `, result)
-					if(result !== undefined) {
-						if(command.to.type === 'GROUP') {
-							send_to_room(command.to.id, command)
-						} else {
-							send_to_me(command)
-							send_to_user(command.to.id, command)
-						}
-					}
-					else {
-						console.error(`It's not possible to insert a new message to DB!`)
-					}
+					// if(command.to.type === 'GROUP') {
+					// 	send_to_room(command.to.id, command)
+					// } else {
+					// 	// send_to_me(command)
+					// 	// send_to_user(command.to.id, command)
+					// }
+					send_to_room(command.to.id, command)
 				} catch(e) {
 					console.error(`Insert Database catch: `, e)
+				}
+			}
+			else if(type === 'JOIN_USER') {
+				try {
+					let sql = `SELECT
+										${command.user}
+									IN
+									(
+										SELECT
+									    	user.id
+									    FROM
+									        room
+									    INNER JOIN
+									        room_member
+									        ON
+									            room_member.room = room.id
+									    INNER JOIN
+									        user
+									        ON
+									            user.id = room_member.user
+									    WHERE
+									        user.id != ${command.from.id}
+									        AND
+									        room.isgroup = 0
+									    GROUP BY
+									        room.id
+									    HAVING
+									        (SELECT COUNT(rm.user) FROM room_member as rm WHERE rm.room = room.id AND rm.user = ${command.from.id}) = 1
+									        AND
+									        (SELECT COUNT(r.id) FROM room_member as r WHERE room = room.id) = 2
+									)
+									as count
+									;`
+					// console.log(`select query: `, sql)
+					let [result] = await query(sql)
+					// console.log(`result query: `, result)
+					// console.log(`count: `, result.count, result)
+					if(result.count === 0) {
+						let sql = `INSERT INTO room (server, isgroup) VALUES(1, 0);`
+						// console.log(`insert query: `, sql)
+						let result = await query(sql)
+						// console.log(`result query: `, result)
+						// console.log(`result lastID: `, result.insertId)
+						let roomID = result.insertId
+
+						sql = `INSERT INTO room_member (room, user) VALUES(${roomID}, ${socket.info.id});`
+						// console.log(`insert query: `, sql)
+						result = await query(sql)
+						// console.log(`result query: `, result)
+
+						sql = `INSERT INTO room_member (room, user) VALUES(${roomID}, ${command.user});`
+						// console.log(`insert query: `, sql)
+						result = await query(sql)
+						// console.log(`result query: `, result)
+
+						sql = `INSERT INTO message (room, user, type, caption) VALUES(${roomID}, ${socket.info.id}, 0, 'سلام.');`
+						// console.log(`insert query: `, sql)
+						result = await query(sql)
+						// console.log(`result query: `, result)
+
+						sql = `SELECT CONCAT(firstname, ' ', lastname) AS name, image FROM user WHERE id = ${command.user};`
+						console.log(`select query: `, sql)
+						result = await query(sql)
+						console.log(`result query: `, result[0])
+						let userName = result[0].name
+
+						send_to_me({
+							type: 'OPEN_ROOM',
+							from: undefined,
+							room: {
+								id: roomID,
+								name: userName,
+								type: 'USER',
+								image: result[0].image
+							}
+						})
+					}
+				} catch(e) {
+					console.error(`Select the row from database catch: `, e)
+				}
+			}
+			else if(type === 'JOIN_ROOM') {
+			}
+			else if(type === 'ASK_SEARCH_GROUPS') {
+				try {
+					let sql = `SELECT
+										room.id, room.name, room.image
+									FROM
+										room_member
+									INNER JOIN
+										room
+									    ON
+									    	room.id = room_member.room
+									WHERE
+										user != ${socket.info.id}
+									    AND
+										room.isgroup = 1
+									GROUP BY
+										room_member.room
+									;`
+					// console.log(`selects query: `, sql)
+					let result = await query(sql)
+					// console.log(`result query: `, result)
+					send_to_me({
+						type: 'ANSWER_SEARCH_GROUPS',
+						from: undefined,
+						groups: result
+					})
+				} catch(e) {
+					console.error(`Selects Database catch: `, e)
+				}
+			}
+			else if(type === 'ASK_MY_GROUPS') {
+				try {
+					let sql = `SELECT
+								        room.id, room.name, room.image
+								    FROM
+								        room_member
+								    INNER JOIN
+								        room
+								        ON
+								            room.id = room_member.room
+								    WHERE
+								        room.isgroup = 1
+								        AND
+								        room_member.user = ${socket.info.id}
+								    GROUP BY
+								        room_member.room
+								    ;`
+					// console.log(`selects query: `, sql)
+					let result = await query(sql)
+					// console.log(`result query: `, result)
+					send_to_me({
+						type: 'ANSWER_MY_GROUPS',
+						from: undefined,
+						groups: result
+					})
+				} catch(e) {
+					console.error(`Selects Database catch: `, e)
+				}
+			}
+			else if(type === 'ASK_MESSAGES_OF_ROOM') {
+				try {
+					let sql = `SELECT
+									user.id as user_id,
+									CONCAT(user.firstname, " ", user.lastname) AS user_name,
+								    message.id AS id,
+								    message.type AS type,
+								    message.caption AS caption,
+								    message.filename AS filename,
+								    message.edited AS edited
+								FROM
+									message
+								INNER JOIN
+									user
+								    ON
+								    	user.id = message.user
+								WHERE
+									message.room = ${command.room.id}
+								;`
+					// console.log(`selects query: `, sql)
+					let result = await query(sql)
+					// console.log(`result query: `, result)
+
+					result.forEach((element, index) => {
+						result[index].user = {
+							id: element.user_id,
+							name: element.user_name,
+							type: 'USER',
+						}
+						delete result[index].user_id
+						delete result[index].user_name
+
+						// console.log(result[index])
+					})
+
+					send_to_me({
+						type: 'ANSWER_MESSAGES_OF_ROOM',
+						from: undefined,
+						room: command.room,
+						messages: result
+					})
+				} catch(e) {
+					console.error(`Selects Database catch: `, e)
+				}
+			}
+			else if(type === 'ASK_MEMBERS_OF_GROUP') {
+				try {
+					let sql = `SELECT
+									user.id,
+									CONCAT(user.firstname, " ", user.lastname) AS name
+									FROM
+										room_member
+									INNER JOIN
+										user
+									    ON
+									    	user.id = room_member.user
+									WHERE
+										room = ${command.room.id}
+									GROUP BY
+										room_member.user	
+									ORDER BY
+										room_member.id DESC
+									;`
+					// console.log(`selects query: `, sql)
+					let result = await query(sql)
+					// console.log(`result query: `, result)
+
+					send_to_me({
+						type: 'ANSWER_MEMBERS_OF_GROUP',
+						from: undefined,
+						room: command.room,
+						users: result
+					})
+				} catch(e) {
+					console.error(`Selects Database catch: `, e)
+				}
+			}
+			else if(type === 'ASK_MY_USERS') {
+				try {
+					let sql = `SELECT
+										user.id, CONCAT(user.firstname, " ", user.lastname) as name
+									FROM
+										room_member
+									INNER JOIN
+										room
+									    ON
+									    	room.id = room_member.room
+									INNER JOIN
+										user
+									    ON
+									    	user.id = room_member.user
+									WHERE
+										user = ${socket.info.id}
+									    AND
+										room.isgroup = 0
+									GROUP BY
+										user
+									;`
+					// console.log(`selects query: `, sql)
+					let result = await query(sql)
+					// console.log(`result query: `, result)
+
+					send_to_me({
+						type: 'ANSWER_MY_USERS',
+						from: undefined,
+						users: result
+					})
+				} catch(e) {
+					console.error(`Selects Database catch: `, e)
+				}
+			}
+			else if(type === 'ASK_SEARCH_USERS') {
+				try {
+					let sql = `SELECT
+										user.id, CONCAT(user.firstname, " ", user.lastname) as name
+									FROM
+										room_member
+									INNER JOIN
+										room
+									    ON
+									    	room.id = room_member.room
+									INNER JOIN
+										user
+									    ON
+									    	user.id = room_member.user
+									WHERE
+										user != ${socket.info.id}
+									    AND
+										room.isgroup = 0
+									GROUP BY
+										user
+									;`
+					// console.log(`selects query: `, sql)
+					let result = await query(sql)
+					// console.log(`result query: `, result)
+
+					send_to_me({
+						type: 'ANSWER_SEARCH_USERS',
+						from: undefined,
+						users: result
+					})
+				} catch(e) {
+					console.error(`Selects Database catch: `, e)
 				}
 			}
 		})
@@ -430,7 +806,9 @@ wss.on('connection', async (socket, request) => {
 			console.log(`websocket close: `, e)
 			if(!users[socket.info.id]) return
 			delete users[socket.info.id]
-		})	} catch(e) {
+
+		})
+	} catch(e) {
 		console.error(`Select Database catch: `, e)
 	}
 })
