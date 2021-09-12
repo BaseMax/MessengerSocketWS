@@ -134,6 +134,43 @@ SELECT
 	)
 	ORDER BY message_id DESC
 	;
+
+
+SELECT
+	    message.id as message_id,
+	    message.caption as message_caption,
+	    message.type as message_type,
+	    message.filename as message_filename,
+	    (SELECT CONCAT(user.firstname, " ", user.lastname) as name FROM user as a WHERE id = message.user) as message_sender,
+	    room.id as room_id,
+	    (CASE WHEN room.name IS NULL THEN 'USER' ELSE 'GROUP' END) as room_type,
+	    IFNULL(room.name, (SELECT CONCAT(u.firstname, " ", u.lastname) AS u FROM room_member as r INNER
+	           JOIN user as u ON r.user = u.id WHERE r.room = room.id AND u.id != 1
+		)) as room_name
+	FROM
+		room_member
+	INNER JOIN
+		room
+		ON
+			room_member.room = room.id
+	INNER JOIN
+		message
+		ON
+			message.room = room.id
+	INNER JOIN
+		user
+		ON
+			user.id = message.user
+	WHERE
+		room_member.user = 1
+	#    AND
+	#    room.id = 3
+	GROUP BY
+		room.id
+	ORDER BY
+		message_id DESC
+	;
+
 */
 
 // INIT Server
@@ -146,7 +183,7 @@ const wss = new ws.Server({server:server})
 const conn = mysql.createConnection({
 	host: "127.0.0.1",
 	user: "root",
-	password: "******",
+	password: "****",
 	database: "onsystem"
 })
 const query = util.promisify(conn.query).bind(conn)
@@ -244,139 +281,66 @@ wss.on('connection', async (socket, request) => {
 		// Get history list of the user
 		let histories = []
 		try {
-			let sql = `(
-						SELECT
-							message.id as message_id,
-							message.room as to_id,
-							(case when (message.roomtype = 1) THEN 'GROUP' ELSE 'USER' END) as to_type,
-							user2.firstname as to_firstname,
-							user2.lastname as to_lastname,
-							message.user as from_id,
-							(case when (message.type = 0) THEN 'MESSAGE' ELSE 'FILE' END) as message_type,
-							message.caption,
-							user.firstname as from_firstname,
-							user.lastname as from_lastname
-							FROM
-								message
-							INNER JOIN
-								user
-								ON
-									user.id = message.user
-							INNER JOIN
-								user as user2
-								ON
-									user2.id = message.room
-							WHERE
-								roomtype=2
-								AND
-								(
-									room = ${socket.info.id}
-									OR
-									user = ${socket.info.id}
-								)
-						)
-						UNION
-						(
-							SELECT
-								message.id as message_id,
-								message.room as to_id,
-								(case when (message.roomtype = 1) THEN 'GROUP' ELSE 'USER' END) as to_type,
-								room.name as to_firstname,
-								'' as to_lastname,
-								message.user as from_id,
-								(case when (message.type = 0) THEN 'MESSAGE' ELSE 'FILE' END) as message_type,
-								message.caption,
-								user.firstname as from_firstname,
-								user.lastname as from_lastname
-							FROM
-								message
-							INNER JOIN
-								room_member
-								ON
-									message.room = room_member.room
-							INNER JOIN
-								user
-								ON
-									user.id = message.user
-							INNER JOIN
-								room
-								ON
-									room.id = message.room
-							WHERE
-								room_member.user = ${socket.info.id}
-								AND
-								message.roomtype = 1
-						)
+			let sql = `SELECT
+						    message.id as message_id,
+						    message.caption as message_caption,
+						    (case when (message.type = 0) THEN 'MESSAGE' ELSE 'FILE' END) as message_type,
+						    message.filename as message_filename,
+						    (SELECT CONCAT(user.firstname, " ", user.lastname) as name FROM user as a WHERE id = message.user) as message_sender,
+						    room.id as room_id,
+						    (CASE WHEN room.name IS NULL THEN 'USER' ELSE 'GROUP' END) as room_type,
+						    IFNULL(room.name, (SELECT CONCAT(u.firstname, " ", u.lastname) AS u FROM room_member as r INNER
+						           JOIN user as u ON r.user = u.id WHERE r.room = room.id AND u.id != ${socket.info.id}
+							)) as room_name
+						FROM
+							room_member
+						INNER JOIN
+							room
+							ON
+								room_member.room = room.id
+						INNER JOIN
+							message
+							ON
+								message.room = room.id
+						INNER JOIN
+							user
+							ON
+								user.id = message.user
+						WHERE
+							room_member.user = ${socket.info.id}
+						#    AND
+						#    room.id = 3
+						GROUP BY
+							room.id
 						ORDER BY
-							message_id
-							DESC
+							message_id DESC
 						;`
 			// console.log(`selects query: `, sql)
-
 			let result = await query(sql)
 			// console.log("result: ", result)
-
-			let result_room_seen = {}
-			result = result.filter((item, index) => {
-				if(result[index].to_type === socket.info.id) {
-					if(result[index].from_type === "USER") {
-						if(result_room_seen[result[index].from_id]) return false
-						result_room_seen[result[index].from_id] = true
-					}
-				} else {
-					if(result[index].to_type === "USER") {
-						if(result_room_seen[result[index].to_id]) return false
-						result_room_seen[result[index].to_id] = true
-					}
-				}
-				return true
-			})
-
 			result.forEach((element, index) => {
-				result[index].from = {
-					id: element.from_id,
-					type: 'USER',
-					firstname: element.from_firstname,
-					lastname: element.from_lastname
-				}
-				delete result[index].from_id
-				delete result[index].from_firstname
-				delete result[index].from_lastname
-
-				result[index].to = {
-					id: element.to_id,
-					type: element.to_type,
-					firstname: element.to_firstname,
-					lastname: element.to_lastname
-				}
-				delete result[index].to_id
-				delete result[index].to_type
-				delete result[index].to_firstname
-				delete result[index].to_lastname
-
 				result[index].message = {
 					id: element.message_id,
+					name: element.message_sender,
 					type: element.message_type,
-					caption: element.caption
+					caption: element.message_caption,
+					filename: element.message_filename,
+					datetime: 15000
 				}
 				delete result[index].message_id
-				delete result[index].caption
+				delete result[index].message_sender
 				delete result[index].message_type
+				delete result[index].message_caption
+				delete result[index].message_filename
 
-				result[index].room = {}
-				result[index].room.type = result[index].to.type === "GROUP" ? "GROUP" : "USER"
-				result[index].room.id = result[index].room.type === "GROUP" ? result[index].to.id : result[index].from.id
-
-				if(result[index].room.type === "GROUP") {
-					result[index].room.firstname =  result[index].to.firstname
-					result[index].room.lastname = result[index].to.lastname
-				} else if (socket.info.id === result[index].from.id) { // if I send message to another person, I should not see my name as the room name
-					result[index].room.firstname = result[index].to.firstname
-					result[index].room.lastname = result[index].to.lastname
-				} else { // If someone else did send direct message to me, I should to see they name as name of the room
-					result[index].room.firstname = result[index].from.firstname
-					result[index].room.lastname = result[index].from.lastname
+				result[index].room = {
+					id: element.room_id,
+					type: element.room_type,
+					name: element.room_name
 				}
+				delete result[index].room_id
+				delete result[index].room_type
+				delete result[index].room_name
 
 				// console.log(result[index])
 			})
