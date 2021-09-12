@@ -1,4 +1,4 @@
-# OnSystemChat
+# Messenger WS Socket (Old OnSystem Chat)
 
 This project took more than ten hours to try to design a native messaging infrastructure.
 Its database is a bit complicated, you can check and view its queries.
