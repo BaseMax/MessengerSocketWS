@@ -72,17 +72,6 @@ elementSecret.value = elementSession.value
 const addNewRoom = (data) => {
 	console.log("addNewRoom: ", data)
 
-	// const isGroup = data.to.type === "GROUP"
-	// let id = undefined
-	// let name = `${isGroup ? "GROUP" : "USER"}: `
-	// if(isGroup) {
-	// 	id = data.to.id
-	// 	name += `${data.to.firstname} ${data.to.lastname}`.trim()
-	// } else {
-	// 	id = data.from.id
-	// 	name += `${data.from.firstname} ${data.from.lastname}`.trim()
-	// }
-
 	const isGroup = data.room.type === "GROUP"
 	const id = data.room.id
 	const name = `${isGroup ? "GROUP" : "USER"}: ${data.room.name}`
