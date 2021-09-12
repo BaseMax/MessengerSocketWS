@@ -23,19 +23,23 @@ Caption: <input class="input-caption" value="Hi!">
 <button class="input-send-message">Send message</button><br>
 <hr>
 <!-- next -->
-New Group: <select class="input-groups"></select>
+Join Group: <select class="input-groups"></select>
 <button class="input-chat-group">Join the group</button><br>
 <br>
-New Users: <select class="input-users"></select>
+Chat with new user: <select class="input-users"></select>
 <button class="input-chat-user">Chat with user</button><br>
 <hr>
 <!-- next -->
 Create new Group: <input class="input-create-group-name">
 <button class="input-create-group">Create new group</button><br>
 <br>
-Invite to group: <select class="input-invite-group-rooms"></select>
+Invite to group: <select class="input-invite-group-groups"></select>
 Select the user: <select class="input-invite-group-users"></select>
 <button class="input-invite-group">Invite the user</button><br>
+<hr>
+<!-- next -->
+View members of a group: <select class="input-view-group"></select>
+Members: <select class="input-view-group-members"></select>
 <hr>
 <!-- next -->
 Messages: <select class="input-messages"></select>
@@ -72,13 +76,16 @@ const elementChatUser = document.querySelector(".input-chat-user")
 const elementNewGroupName = document.querySelector(".input-create-group-name")
 const elementNewGroup = document.querySelector(".input-create-group")
 
-const elementInviteGroupRooms = document.querySelector(".input-invite-group-rooms")
+const elementInviteGroupGroups = document.querySelector(".input-invite-group-groups")
 const elementInviteGroupUsers = document.querySelector(".input-invite-group-users")
 const elementInviteGroup = document.querySelector(".input-invite-group")
 
 const elementMessages = document.querySelector(".input-messages")
 const elementMessageDelete = document.querySelector(".input-message-delete")
 const elementMessageEdit = document.querySelector(".input-message-edit")
+
+const elementViewGroup = document.querySelector(".input-view-group")
+const elementViewGroupMembers = document.querySelector(".input-view-group-members")
 
 // Debug
 const getQueryVariable = (variable) => {
@@ -96,10 +103,10 @@ const getQueryVariable = (variable) => {
 }
 
 const FAKE_AUTH = [
-	"98****",
-	"98****",
-	"98****",
-	"98****"
+	"1***",
+	"2***",
+	"3***",
+	"4***"
 ]
 
 let debug_index = getQueryVariable("u")-1
@@ -108,6 +115,21 @@ elementSession.value = FAKE_AUTH[debug_index] ? FAKE_AUTH[debug_index] : ""
 elementSecret.value = elementSession.value
 
 // Functions
+const addNewToGroupViewMembers = (data) => {
+	console.log("addNewToRoom: ", data)
+
+	const isGroup = data.type === "GROUP"
+	const id = data.id
+	const name = `${isGroup ? "GROUP" : "USER"}: ${data.name}`
+
+	const newOption = document.createElement('option')
+	newOption.appendChild(document.createTextNode(name))
+	newOption.setAttribute('value', id)
+	newOption.setAttribute('data-type', data.type)
+
+	elementViewGroupMembers.appendChild(newOption)
+}
+
 const addNewToRoom = (data) => {
 	console.log("addNewToRoom: ", data)
 
@@ -122,6 +144,35 @@ const addNewToRoom = (data) => {
 
 	elementRoom.appendChild(newOption)
 }
+
+const addNewToViewGroups = (data) => {
+	console.log("addNewToViewGroups: ", data)
+
+	const id = data.id
+	const name = `${data.name}`
+
+	const newOption = document.createElement('option')
+	newOption.appendChild(document.createTextNode(name))
+	newOption.setAttribute('value', id)
+	newOption.setAttribute('data-type', 'GROUP')
+
+	elementViewGroup.appendChild(newOption)
+}
+
+const addNewToGroupsInvites = (data) => {
+	console.log("addNewToGroupsInvites: ", data)
+
+	const id = data.id
+	const name = `${data.name}`
+
+	const newOption = document.createElement('option')
+	newOption.appendChild(document.createTextNode(name))
+	newOption.setAttribute('value', id)
+	newOption.setAttribute('data-type', 'GROUP')
+
+	elementInviteGroupGroups.appendChild(newOption)
+}
+
 const addNewToGroups = (data) => {
 	console.log("addNewToGroups: ", data)
 
@@ -135,6 +186,22 @@ const addNewToGroups = (data) => {
 
 	elementGroups.appendChild(newOption)
 }
+
+const addNewToInviteUsers = (data) => {
+	console.log("addNewToUsers: ", data)
+
+	const id = data.id
+	const name = `${data.name}`
+
+	const newOption = document.createElement('option')
+	newOption.appendChild(document.createTextNode(name))
+	newOption.setAttribute('value', id)
+	newOption.setAttribute('data-type', 'USER')
+
+	elementInviteGroupUsers.appendChild(newOption)
+}
+
+
 const addNewToUsers = (data) => {
 	console.log("addNewToUsers: ", data)
 
@@ -204,18 +271,34 @@ const socketConnect = (session, secret) => {
 					// console.log(room)
 					addNewToRoom(room.room)
 				}
+
 				send({
 					type: "ASK_SEARCH_GROUPS",
 					from: socketFrom,
 					server: "",
 					search: ""
 				})
+
 				send({
 					type: "ASK_SEARCH_USERS",
 					from: socketFrom,
 					server: "",
 					search: ""
 				})
+
+
+				send({
+					type: "ASK_MY_GROUPS",
+					from: socketFrom,
+				})
+
+				send({
+					type: "ASK_MY_USERS",
+					from: socketFrom,
+				})
+
+				// Test
+				loadMessagesOfRoom()
 			}
 			else if(obj.type === "OPEN_ROOM") {
 				let founded = false
@@ -230,17 +313,35 @@ const socketConnect = (session, secret) => {
 					addNewToRoom(obj.room)
 				}
 			}
+			else if(obj.type === "ANSWER_MEMBERS_OF_GROUP") {
+				elementViewGroupMembers.innerHTML=``
+				for(let user of obj.users) {
+					addNewToGroupViewMembers(user)
+				}
+			}
 			else if(obj.type === "ANSWER_SEARCH_GROUPS") {
 				for(let group of obj.groups) {
 					// console.log(group)
 					addNewToGroups(group)
 				}
+				loadUsersOfCurrentGroupView()
+				// loadUsersOfCurrentGroupInvite()
+			}
+			else if(obj.type === "ANSWER_MY_GROUPS") {
+				for(let group of obj.groups) {
+					addNewToGroupsInvites(group)
+					addNewToViewGroups(group)
+				}
+				loadUsersOfCurrentGroupView()
 			}
 			else if(obj.type === "ANSWER_SEARCH_USERS") {
 				for(let user of obj.users) {
 					// console.log(user)
 					addNewToUsers(user)
+					addNewToInviteUsers(user)
 				}
+			}
+			else if(obj.type === "ANSWER_MY_USERS") {
 			}
 			else if(obj.type === 'NEW_MESSAGE') {
 			}
@@ -276,6 +377,12 @@ elementSendMessage.addEventListener("click", () => {
 			caption: elementCaption.value
 		}
 	})
+	elementCaption.value = ''
+})
+elementCaption.addEventListener("keydown", () => {
+	if(event.key === 'Enter') {
+		elementSendMessage.click()
+	}
 })
 elementChatGroup.addEventListener("click", () => {
 	send({
@@ -303,6 +410,39 @@ elementMessageDelete.addEventListener("click", () => {
 elementMessageEdit.addEventListener("click", () => {
 
 })
+const loadMessagesOfRoom = () => {
+	console.log(elementRoom.options[elementRoom.selectedIndex].value)
+	send({
+		type: "ASK_MESSAGES_OF_ROOM",
+		from: socketFrom,
+		room: {
+			id: elementRoom.options[elementRoom.selectedIndex].value,
+			type: "GROUP",
+		},
+		messages: {
+			first: undefined,
+			last: undefined,
+		}
+	})
+}
+
+elementViewGroupMembers
+
+const loadUsersOfCurrentGroupView = () => {
+	console.log(`loadUsersOfCurrentGroupView: `, elementViewGroup.options[elementViewGroup.selectedIndex].value)
+	send({
+		type: "ASK_MEMBERS_OF_GROUP",
+		from: socketFrom,
+		room: {
+			id: elementViewGroup.options[elementViewGroup.selectedIndex].value,
+			type: "GROUP",
+		},
+		offset: 0
+	})
+}
+elementRoom.addEventListener("change", loadMessagesOfRoom)
+// elementInviteGroupGroups.addEventListener("change", loadUsersOfCurrentGroupInvite)
+elementViewGroup.addEventListener("change", loadUsersOfCurrentGroupView)
 </script>
 </body>
 </html>
