@@ -1,0 +1,187 @@
+<script type="text/javascript" src="func.js"></script>
+<script type="text/javascript" src="render.js"></script>
+<style>
+.renderjson a              { text-decoration: none }
+.renderjson .disclosure    { color: crimson;font-size: 150% }
+.renderjson .syntax        { color: black }
+.renderjson .string        { color: green }
+.renderjson .number        { color: black }
+.renderjson .boolean       { color: black }
+.renderjson .key           { color: blue  }
+.renderjson .keyword       { color: black }
+.renderjson .object.syntax { color: black }
+.renderjson .array.syntax  { color: black }
+</style>
+<!-- next -->
+Session: <input class="input-session" value="max">
+Secret: <input class="input-secret" value="01">
+<button class="input-login">Join system</button><br>
+<hr>
+<!-- next -->
+Room: <select class="input-rooms"></select>
+Caption: <input class="input-caption" value="Hi!">
+<button class="input-send-message">Send message</button><br>
+<hr>
+<!-- next -->
+<div class="logs"></div>
+<!-- next -->
+<script>
+// INIT
+renderjson.set_icons('+', '-')
+renderjson.set_show_to_level(5)
+let ws = undefined
+let socketFrom = undefined
+let socketStatus = false
+
+// Elements
+const elementLogin = document.querySelector(".input-login")
+const elementLogs = document.querySelector(".logs")
+const elementSession = document.querySelector(".input-session")
+const elementSecret = document.querySelector(".input-secret")
+const elementRooms = document.querySelector(".input-rooms")
+const elementCaption = document.querySelector(".input-caption")
+const elementSendMessage = document.querySelector(".input-send-message")
+
+// Debug
+const getQueryVariable = (variable) => {
+	const query = window.location.search.substring(1)
+	const vars = query.split('&')
+	for (let i = 0; i < vars.length; i++) {
+		const pair = vars[i].split('=')
+		if (decodeURIComponent(pair[0]) == variable) {
+			const res = parseInt(decodeURIComponent(pair[1]))
+			if(isNaN(res)) return 1
+			return res
+		}
+	}
+	return 1
+}
+
+const FAKE_AUTH = [
+	"1*******",
+	"2*******",
+	"3*******",
+]
+
+let debug_index = getQueryVariable("u")-1
+debug_index = debug_index > FAKE_AUTH.length-1 ? 0 : debug_index
+elementSession.value = FAKE_AUTH[debug_index] ? FAKE_AUTH[debug_index] : ""
+elementSecret.value = elementSession.value
+
+// Functions
+const addNewRoom = (data) => {
+	console.log("addNewRoom: ", data)
+
+	// const isGroup = data.to.type === "GROUP"
+	// let id = undefined
+	// let name = `${isGroup ? "GROUP" : "USER"}: `
+	// if(isGroup) {
+	// 	id = data.to.id
+	// 	name += `${data.to.firstname} ${data.to.lastname}`.trim()
+	// } else {
+	// 	id = data.from.id
+	// 	name += `${data.from.firstname} ${data.from.lastname}`.trim()
+	// }
+
+	const isGroup = data.room.type === "GROUP"
+	const id = data.room.id
+	const name = `${isGroup ? "GROUP" : "USER"}: ${data.room.name}`
+
+	const newOption = document.createElement('option')
+	newOption.appendChild(document.createTextNode(name))
+	newOption.setAttribute('value', id)
+	newOption.setAttribute('data-type', data.type)
+
+	elementRooms.appendChild(newOption)
+}
+
+const send = (data) => {
+	ws.send(JSON.stringify(data))
+}
+
+const socketConnect = (session, secret) => {
+	if(socketStatus === true) return
+
+	const url = `ws://localhost:5000?session=${session}&secret=${secret}`
+	console.log(`SOcket connecting to ${url}`)
+	elementLogs.appendChild(renderjson({type: 'connect', link: url}, "init"))
+
+	ws = new WebSocket(url)
+
+	// Sockets
+	ws.onerror = (message) => {
+		elementLogs.appendChild(renderjson({
+			type: 'onerror',
+			caption: message
+		}, "onerror"))
+	}
+
+	ws.onclose = (message) => {
+		socketStatus = false
+		console.log(`Socket is closed. Reconnect will be attempted in 5 second: `, message.reason)
+		elementLogs.appendChild(renderjson({
+			type: 'onclose',
+			caption: message
+		}, "onclose"))
+		setTimeout(function() {
+			socketConnect(session, secret)
+		}, 5*1000)
+	}
+
+	ws.onopen = () => {
+		socketStatus = true
+		elementLogs.appendChild(renderjson({
+			type: 'onopen',
+		}, "onopen"))
+		send({
+			type: 'join',
+		})
+	}
+
+	ws.onmessage = (message) => {
+		const obj = JSON.parse(message.data)
+		console.log("onmessage: ", obj)
+		try {
+			elementLogs.appendChild(renderjson(obj, "onmessage"))
+			if(obj.type === 'WELCOME') {
+				socketFrom = obj.info
+				for(let room of obj.rooms) {
+					console.log(room)
+					addNewRoom(room)
+				}
+			}
+			else if(obj.type === 'NEW_MESSAGE') {
+			}
+			else if(obj.type === 'UPDATE_MESSAGE') {
+			}
+			else if(obj.type === 'USER_ONLINE') {
+
+			}
+			else if(obj.type === 'USER_OFFLINE') {
+
+			}
+		} catch (e) {
+			console.log('JSON Error', e.message)
+		}
+	}
+}
+
+// Events
+elementLogin.addEventListener("click", () => {
+	socketConnect(elementSession.value, elementSecret.value)
+})
+elementSendMessage.addEventListener("click", () => {
+	send({
+		type: 'SEND_MESSAGE',
+		from: socketFrom,
+		to: {
+			id: elementRooms.options[elementRooms.selectedIndex].value,
+			type: elementRooms.options[elementRooms.selectedIndex].getAttribute('data-type')
+		},
+		format: 'MESSAGE',
+		caption: elementCaption.value
+	})
+})
+</script>
+</body>
+</html>
